@@ -46,7 +46,9 @@ public class DfsPartitionDataReader extends PartitionDataReader {
             .get(
                 fileInfo.isHdfs()
                     ? StorageInfo.Type.HDFS
-                    : fileInfo.isS3() ? StorageInfo.Type.S3 : StorageInfo.Type.OSS);
+                    : fileInfo.isS3()
+                        ? StorageInfo.Type.S3
+                        : fileInfo.isOSS() ? StorageInfo.Type.OSS : StorageInfo.Type.GCS);
     this.dataInputStream = dataInputStream;
     this.indexInputStream = indexInputStream;
     this.dataFileSize = fileSystem.getFileStatus(fileInfo.getDfsPath()).getLen();
