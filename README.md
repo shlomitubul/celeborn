@@ -112,6 +112,11 @@ To build Celeborn with Aliyun OSS support MPU, please use the following command
 ./build/make-distribution.sh --sbt-enabled -Pspark-3.4 -Pjdk-8 -Paliyun
 ```
 
+To build Celeborn with Google Cloud Storage (GCS) support MPU, please use the following command
+```shell
+./build/make-distribution.sh -Pgcp -Pspark-3.5
+```
+
 ### Package Details
 Build procedure will create a compressed package.
 
@@ -288,6 +293,32 @@ celeborn.storage.oss.secret.key <oss_secret_key>
 celeborn.storage.oss.endpoint oss-cn-<region>[-internal].aliyuncs.com
 ```
 
+Shuffle GCS storage related configurations (build with `-Pgcp`):
+```properties
+# If you are using Celeborn for shuffle GCS storage, these settings will be needed.
+# Local disk (HDD) is kept as a fast tier; workers offload to GCS under disk pressure.
+celeborn.storage.availableTypes HDD,GCS
+celeborn.storage.gcs.dir gs://<bucket_name>/celeborn
+# Evict from memory to local disk, then from local disk to GCS.
+celeborn.worker.storage.storagePolicy.evictPolicy MEMORY,HDD|HDD,GCS
+# Optional: a service-account JSON key. If unset, Application Default Credentials (ADC) are used
+# (e.g. GKE Workload Identity).
+# celeborn.storage.gcs.credentials.path /path/to/service-account.json
+# celeborn.storage.gcs.project.id <gcp_project_id>
+```
+
+> **_GCS operational notes:_**
+> - **Configure Object Lifecycle Management** on the shuffle bucket with an
+>   `AbortIncompleteMultipartUpload` rule (e.g. 1 day). Celeborn offloads shuffle files via GCS
+>   multipart uploads; a worker that crashes after starting an upload but before completing or
+>   aborting it leaves uploaded parts that remain **billable** until a lifecycle rule (or manual
+>   cleanup) removes them.
+> - **Standard buckets only.** Only regional, dual-region, and multi-region buckets are supported;
+>   zonal/Rapid buckets do not support the XML multipart upload backend and are rejected at startup.
+> - The startup compatibility check requires the worker's GCS credentials to have the
+>   `storage.buckets.get` permission. If that permission is unavailable, set
+>   `celeborn.storage.gcs.skipBucketCompatibilityCheck=true` after verifying the bucket is standard.
+
 #### Deploy Celeborn on K8S
 Please refer to our [website](https://celeborn.apache.org/docs/latest/deploy_on_k8s/)
 
@@ -350,6 +381,13 @@ spark.celeborn.storage.oss.dir oss://<bucket_name>/
 spark.celeborn.storage.oss.access.key <oss_access_key>
 spark.celeborn.storage.oss.secret.key <oss_secret_key>
 spark.celeborn.storage.oss.endpoint oss-cn-<region>[-internal].aliyuncs.com
+```
+
+Shuffle GCS storage related configurations:
+```properties
+# If you are using Celeborn for shuffle GCS storage, these settings will be needed.
+spark.celeborn.storage.availableTypes HDD,GCS
+spark.celeborn.storage.gcs.dir gs://<bucket_name>/celeborn
 ```
 
 ### Deploy Flink client

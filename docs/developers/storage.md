@@ -131,3 +131,20 @@ threshold (defaults to 256KiB), `Worker` flushes it to some storage layer. The p
 - If the `Cache Region` exceeds the threshold, choose the largest `PartitionLocation` and flush it to local disk, as ⑥
   indicates.
 - Optionally, if local disk does not have enough memory, choose a `PartitionLocation` split and evict to HDFS/OSS.
+
+## Remote Storage Backends
+
+In addition to HDFS, Celeborn can use object stores as the remote storage tier:
+
+- **S3** (`celeborn.storage.s3.dir`, build with `-Paws`)
+- **Aliyun OSS** (`celeborn.storage.oss.dir`, build with `-Paliyun`)
+- **Google Cloud Storage (GCS)** (`celeborn.storage.gcs.dir`, build with `-Pgcp`)
+
+For GCS, shuffle files are offloaded via the GCS XML API multipart upload. Only **standard**
+(regional, dual-region, multi-region) buckets are supported; zonal/Rapid buckets do not support
+the multipart upload backend and are rejected at startup (override with
+`celeborn.storage.gcs.skipBucketCompatibilityCheck=true` only after confirming the bucket is
+standard). Authentication uses Application Default Credentials (ADC) by default, or a
+service-account JSON key via `celeborn.storage.gcs.credentials.path`. Because a crashed worker can
+leave billable incomplete multipart uploads, configure the bucket with an
+`AbortIncompleteMultipartUpload` Object Lifecycle Management rule (e.g. 1 day).
