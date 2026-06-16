@@ -123,7 +123,7 @@ class StoragePolicy(conf: CelebornConf, storageManager: StorageManager, source: 
                 s"Not creating ${storageInfoType} file from ${location.getStorageInfo.getType} for ${partitionDataWriterContext.getShuffleKey} ${partitionDataWriterContext.getPartitionLocation.getFileName}")
               null
             }
-          case StorageInfo.Type.HDD | StorageInfo.Type.SSD | StorageInfo.Type.HDFS | StorageInfo.Type.OSS | StorageInfo.Type.S3 =>
+          case StorageInfo.Type.HDD | StorageInfo.Type.SSD | StorageInfo.Type.HDFS | StorageInfo.Type.OSS | StorageInfo.Type.S3 | StorageInfo.Type.GCS =>
             if (storageManager.localOrDfsStorageAvailable) {
               logDebug(
                 s"create non-memory file type $storageInfoType (evict=$evict, override=$overrideType) for ${partitionDataWriterContext.getShuffleKey} ${partitionDataWriterContext.getPartitionLocation.getFileName}")
