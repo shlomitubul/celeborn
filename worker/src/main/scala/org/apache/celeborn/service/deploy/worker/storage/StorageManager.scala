@@ -61,6 +61,7 @@ final private[worker] class StorageManager(conf: CelebornConf, workerSource: Abs
   val hdfsWriters = JavaUtils.newConcurrentHashMap[String, PartitionDataWriter]()
   val s3Writers = JavaUtils.newConcurrentHashMap[String, PartitionDataWriter]()
   val ossWriters = JavaUtils.newConcurrentHashMap[String, PartitionDataWriter]()
+  val gcsWriters = JavaUtils.newConcurrentHashMap[String, PartitionDataWriter]()
   val memoryWriters = JavaUtils.newConcurrentHashMap[MemoryFileInfo, PartitionDataWriter]()
   // (shuffleKey->(filename->DiskFileInfo))
   private val diskFileInfos =
@@ -72,6 +73,7 @@ final private[worker] class StorageManager(conf: CelebornConf, workerSource: Abs
   val hasHDFSStorage = conf.hasHDFSStorage
   val hasS3Storage = conf.hasS3Storage
   val hasOssStorage = conf.hasOssStorage
+  val hasGcsStorage = conf.hasGcsStorage
   val remoteStorageDirs = conf.remoteStorageDirs
 
   val storageExpireDirTimeout = conf.workerStorageExpireDirTimeout
@@ -80,6 +82,7 @@ final private[worker] class StorageManager(conf: CelebornConf, workerSource: Abs
   val diskReserveSize = conf.workerDiskReserveSize
   val diskReserveRatio = conf.workerDiskReserveRatio
   var s3MultipartUploadHandlerSharedState: AutoCloseable = _
+  var gcsMultipartUploadHandlerSharedState: AutoCloseable = _
 
   // (deviceName -> deviceInfo) and (mount point -> diskInfo)
   val (deviceInfos, diskInfos) = {
@@ -164,6 +167,7 @@ final private[worker] class StorageManager(conf: CelebornConf, workerSource: Abs
   val hdfsDir = conf.hdfsDir
   val s3Dir = conf.s3Dir
   val ossDir = conf.ossDir
+  val gcsDir = conf.gcsDir
   val hdfsPermission = new FsPermission("755")
   val (hdfsFlusher, _totalHdfsFlusherThread) =
     if (hasHDFSStorage) {
@@ -234,15 +238,40 @@ final private[worker] class StorageManager(conf: CelebornConf, workerSource: Abs
       (None, 0)
     }
 
+  val (gcsFlusher, _totalGcsFlusherThread) =
+    if (hasGcsStorage) {
+      logInfo(s"Initialize GCS support with path $gcsDir")
+      try {
+        StorageManager.hadoopFs = CelebornHadoopUtils.getHadoopFS(conf)
+      } catch {
+        case e: Exception =>
+          logError("Celeborn initialize GCS failed.", e)
+          throw e
+      }
+      (
+        Some(new GcsFlusher(
+          workerSource,
+          conf.workerGcsFlusherThreads,
+          storageBufferAllocator,
+          conf.workerPushMaxComponents,
+          conf.workerFlushReuseCopyBufferEnabled,
+          conf.workerGcsFlusherBufferSize)),
+        conf.workerGcsFlusherThreads)
+    } else {
+      (None, 0)
+    }
+
   def totalFlusherThread: Int =
-    _totalLocalFlusherThread + _totalHdfsFlusherThread + _totalS3FlusherThread + _totalOssFlusherThread
+    _totalLocalFlusherThread + _totalHdfsFlusherThread + _totalS3FlusherThread +
+      _totalOssFlusherThread + _totalGcsFlusherThread
 
   val activeTypes = conf.availableStorageTypes
 
   lazy val localOrDfsStorageAvailable: Boolean = {
     StorageInfo.OSSAvailable(activeTypes) || StorageInfo.S3Available(activeTypes) ||
+    StorageInfo.GCSAvailable(activeTypes) ||
     StorageInfo.HDFSAvailable(activeTypes) || StorageInfo.localDiskAvailable(activeTypes) ||
-    hdfsDir.nonEmpty || !diskInfos.isEmpty || s3Dir.nonEmpty || ossDir.nonEmpty
+    hdfsDir.nonEmpty || !diskInfos.isEmpty || s3Dir.nonEmpty || ossDir.nonEmpty || gcsDir.nonEmpty
   }
 
   override def notifyError(mountPoint: String, diskStatus: DiskStatus): Unit = this.synchronized {
@@ -457,6 +486,24 @@ final private[worker] class StorageManager(conf: CelebornConf, workerSource: Abs
       conf.s3MultiplePartUploadMaxBackoff)
   }
 
+  def ensureGcsClientSharedState(): Unit = this.synchronized {
+    if (gcsMultipartUploadHandlerSharedState != null)
+      return
+
+    val gcsHadoopFs: FileSystem = hadoopFs.get(StorageInfo.Type.GCS)
+    if (gcsHadoopFs == null)
+      throw new IllegalStateException("GCS is not configured")
+
+    val bucketName = gcsHadoopFs.getUri.getHost
+    logInfo(s"Creating GCS shared client for bucket $bucketName")
+    gcsMultipartUploadHandlerSharedState =
+      TierWriterHelper.getGcsMultipartUploadHandlerSharedState(
+        conf.gcsProjectId.orNull,
+        conf.gcsCredentialsPath.orNull,
+        bucketName,
+        conf.gcsSkipBucketCompatibilityCheck)
+  }
+
   /**
    * Ensure that the directory for the Shuffle exists.
    * This method is not synchronized because from the protocol it is not expected
@@ -549,6 +596,10 @@ final private[worker] class StorageManager(conf: CelebornConf, workerSource: Abs
     }
     if (fileInfo.isOSS) {
       ossWriters.put(fileInfo.getFilePath, writer)
+      return
+    }
+    if (fileInfo.isGCS) {
+      gcsWriters.put(fileInfo.getFilePath, writer)
       return
     }
     deviceMonitor.registerFileWriter(writer, fileInfo.getFilePath)
@@ -647,6 +698,14 @@ final private[worker] class StorageManager(conf: CelebornConf, workerSource: Abs
               s"Destroy FileWriter $ossFileWriter caused by shuffle $shuffleKey expired."))
             ossWriters.remove(info.getFilePath)
           }
+        } else if (info.isGCS) {
+          isDfsExpired = true
+          val gcsFileWriter = gcsWriters.get(info.getFilePath)
+          if (gcsFileWriter != null) {
+            gcsFileWriter.destroy(new IOException(
+              s"Destroy FileWriter $gcsFileWriter caused by shuffle $shuffleKey expired."))
+            gcsWriters.remove(info.getFilePath)
+          }
         } else {
           val workingDir =
             info.getFile.getParentFile.getParentFile.getParentFile
@@ -700,6 +759,7 @@ final private[worker] class StorageManager(conf: CelebornConf, workerSource: Abs
             val dir =
               if (storageType == StorageInfo.Type.HDFS) hdfsDir
               else if (storageType == StorageInfo.Type.OSS) ossDir
+              else if (storageType == StorageInfo.Type.GCS) gcsDir
               else s3Dir
             StorageManager.hadoopFs.get(storageType).delete(
               new Path(new Path(dir, conf.workerWorkingDir), s"$appId/$shuffleId"),
@@ -816,6 +876,7 @@ final private[worker] class StorageManager(conf: CelebornConf, workerSource: Abs
             if (storageType == StorageInfo.Type.HDFS)
               hdfsDir
             else if (storageType == StorageInfo.Type.OSS) ossDir
+            else if (storageType == StorageInfo.Type.GCS) gcsDir
             else s3Dir
           try {
             val dfsWorkPath = new Path(dfsDir, conf.workerWorkingDir)
@@ -894,6 +955,8 @@ final private[worker] class StorageManager(conf: CelebornConf, workerSource: Abs
 
     if (s3MultipartUploadHandlerSharedState != null)
       s3MultipartUploadHandlerSharedState.close()
+    if (gcsMultipartUploadHandlerSharedState != null)
+      gcsMultipartUploadHandlerSharedState.close()
   }
 
   private def flushFileWriters(): Unit = {
@@ -907,6 +970,7 @@ final private[worker] class StorageManager(conf: CelebornConf, workerSource: Abs
     flushOnMemoryPressure(hdfsWriters)
     flushOnMemoryPressure(s3Writers)
     flushOnMemoryPressure(ossWriters)
+    flushOnMemoryPressure(gcsWriters)
   }
 
   private def flushOnMemoryPressure(writers: ConcurrentHashMap[String, PartitionDataWriter])
@@ -1150,7 +1214,8 @@ final private[worker] class StorageManager(conf: CelebornConf, workerSource: Abs
           }
           healthyWorkingDirs()
         }
-      if (dirs.isEmpty && hdfsFlusher.isEmpty && s3Flusher.isEmpty && ossFlusher.isEmpty) {
+      if (dirs.isEmpty && hdfsFlusher.isEmpty && s3Flusher.isEmpty && ossFlusher.isEmpty &&
+        gcsFlusher.isEmpty) {
         throw new IOException(s"No available disks! suggested mountPoint $suggestedMountPoint")
       }
 
@@ -1205,6 +1270,25 @@ final private[worker] class StorageManager(conf: CelebornConf, workerSource: Abs
           fileName,
           ossFileInfo)
         return (ossFlusher.get, ossFileInfo, null)
+      } else if (storageType == Type.GCS && location.getStorageInfo.GCSAvailable()) {
+        ensureGcsClientSharedState()
+        val shuffleDir =
+          new Path(new Path(gcsDir, conf.workerWorkingDir), s"$appId/$shuffleId")
+        FileSystem.mkdirs(
+          StorageManager.hadoopFs.get(StorageInfo.Type.GCS),
+          shuffleDir,
+          hdfsPermission)
+        val gcsFilePath = new Path(shuffleDir, fileName).toString
+        val gcsFileInfo = new DiskFileInfo(
+          userIdentifier,
+          partitionSplitEnabled,
+          new ReduceFileMeta(conf.shuffleChunkSize),
+          gcsFilePath,
+          StorageInfo.Type.GCS)
+        diskFileInfos.computeIfAbsent(shuffleKey, diskFileInfoMapFunc).put(
+          fileName,
+          gcsFileInfo)
+        return (gcsFlusher.get, gcsFileInfo, null)
       } else if (dirs.nonEmpty && location.getStorageInfo.localDiskAvailable()) {
         val dir = dirs(getNextIndex % dirs.size)
         val mountPoint = DeviceInfo.getMountPoint(dir.getAbsolutePath, mountPoints)
