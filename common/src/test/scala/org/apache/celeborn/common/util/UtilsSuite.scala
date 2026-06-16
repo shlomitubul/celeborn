@@ -226,6 +226,13 @@ class UtilsSuite extends CelebornFunSuite {
     assert(true == Utils.isOssPath(indexOssPath))
   }
 
+  test("isGcsPath recognizes gs:// and excludes it from HDFS") {
+    assert(Utils.isGcsPath("gs://my-bucket/path"))
+    assert(!Utils.isGcsPath("s3://my-bucket/path"))
+    assert(!Utils.isHdfsPath("gs://my-bucket/path"))
+    assert(Utils.isHdfsPath("hdfs://nn/path"))
+  }
+
   test("GetReducerFileGroupResponse class convert with pb") {
     val fileGroup = new util.HashMap[Integer, util.Set[PartitionLocation]]
     fileGroup.put(0, partitionLocation(0))
