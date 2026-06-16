@@ -31,4 +31,16 @@ class CelebornHadoopUtilsSuite extends CelebornFunSuite {
       "com.google.cloud.hadoop.fs.gcs.GoogleHadoopFileSystem")
     assert(hadoopConf.get("fs.gs.auth.type") == "APPLICATION_DEFAULT")
   }
+
+  test("GCS hadoop conf uses keyfile auth when credentials path is set") {
+    val conf = new CelebornConf()
+    conf.set("celeborn.storage.availableTypes", "HDD,GCS")
+    conf.set("celeborn.storage.gcs.dir", "gs://bucket/celeborn")
+    conf.set("celeborn.storage.gcs.credentials.path", "/etc/gcs/key.json")
+    conf.set("celeborn.storage.gcs.project.id", "my-project")
+    val hadoopConf = CelebornHadoopUtils.newConfiguration(conf)
+    assert(hadoopConf.get("fs.gs.auth.type") == "SERVICE_ACCOUNT_JSON_KEYFILE")
+    assert(hadoopConf.get("fs.gs.auth.service.account.json.keyfile") == "/etc/gcs/key.json")
+    assert(hadoopConf.get("fs.gs.project.id") == "my-project")
+  }
 }

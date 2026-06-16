@@ -42,7 +42,11 @@ license: |
 | celeborn.redaction.regex | (?i)secret|password|token|access[.]key | false | Regex to decide which Celeborn configuration properties and environment variables in master and worker environments contain sensitive information. When this regex matches a property key or value, the value is redacted from the logging. | 0.5.0 |  | 
 | celeborn.shuffle.chunk.size | 8m | false | Max chunk size of reducer's merged shuffle data. For example, if a reducer's shuffle data is 128M and the data will need 16 fetch chunk requests to fetch. | 0.2.0 |  | 
 | celeborn.shuffle.sortPartition.block.compactionFactor | 0.25 | false | Combine sorted shuffle blocks such that size of compacted shuffle block does not exceed compactionFactor * celeborn.shuffle.chunk.size | 0.4.2 |  | 
-| celeborn.storage.availableTypes | HDD | false | Enabled storages. Available options: MEMORY,HDD,SSD,HDFS,S3,OSS. Note: HDD and SSD would be treated as identical. | 0.3.0 | celeborn.storage.activeTypes | 
+| celeborn.storage.availableTypes | HDD | false | Enabled storages. Available options: MEMORY,HDD,SSD,HDFS,S3,OSS,GCS. Note: HDD and SSD would be treated as identical. | 0.3.0 | celeborn.storage.activeTypes | 
+| celeborn.storage.gcs.credentials.path | &lt;undefined&gt; | false | Optional path to a GCS service-account JSON key file. If unset, Application Default Credentials (ADC) are used. | 0.7.0 |  | 
+| celeborn.storage.gcs.dir | &lt;undefined&gt; | false | GCS base directory (gs://bucket/path) for Celeborn to store shuffle data. Standard (regional/multi-region) buckets only; zonal/Rapid buckets are not supported. | 0.7.0 |  | 
+| celeborn.storage.gcs.project.id | &lt;undefined&gt; | false | Optional GCP project id override for GCS access. | 0.7.0 |  | 
+| celeborn.storage.gcs.skipBucketCompatibilityCheck | false | false | Skip the startup check that rejects zonal/Rapid GCS buckets (which do not support XML multipart uploads). Enable only if the worker's credentials lack storage.buckets.get permission and you have verified the bucket is standard. | 0.7.0 |  | 
 | celeborn.storage.hdfs.dir | &lt;undefined&gt; | false | HDFS base directory for Celeborn to store shuffle data. | 0.2.0 |  | 
 | celeborn.storage.hdfs.kerberos.keytab | &lt;undefined&gt; | false | Kerberos keytab file path for HDFS storage connection. | 0.3.2 |  | 
 | celeborn.storage.hdfs.kerberos.principal | &lt;undefined&gt; | false | Kerberos principal for HDFS storage connection. | 0.3.2 |  | 
@@ -88,6 +92,8 @@ license: |
 | celeborn.worker.fetch.port | 0 | false | Server port for Worker to receive fetch data request from ShuffleClient. | 0.2.0 |  | 
 | celeborn.worker.flusher.buffer.size | 256k | false | Size of buffer used by a single flusher. | 0.2.0 |  | 
 | celeborn.worker.flusher.diskTime.slidingWindow.size | 20 | false | The size of sliding windows used to calculate statistics about flushed time and count. | 0.3.0 | celeborn.worker.flusher.avgFlushTime.slidingWindow.size | 
+| celeborn.worker.flusher.gcs.buffer.size | 6m | false | Size of buffer used by a GCS flusher. Must be >= 5m: GCS XML multipart uploads require every non-final part to be at least 5 MiB. | 0.7.0 |  | 
+| celeborn.worker.flusher.gcs.threads | 8 | false | Flusher's thread count used for write data to GCS. | 0.7.0 |  | 
 | celeborn.worker.flusher.hdd.threads | 1 | false | Flusher's thread count per disk used for write data to HDD disks. | 0.2.0 |  | 
 | celeborn.worker.flusher.hdfs.buffer.size | 4m | false | Size of buffer used by a HDFS flusher. | 0.3.0 |  | 
 | celeborn.worker.flusher.hdfs.threads | 8 | false | Flusher's thread count used for write data to HDFS. | 0.2.0 |  | 
@@ -195,8 +201,8 @@ license: |
 | celeborn.worker.storage.disk.reserve.ratio | &lt;undefined&gt; | false | Celeborn worker reserved ratio for each disk. The minimum usable size for each disk is the max space between the reserved space and the space calculate via reserved ratio. | 0.3.2 |  | 
 | celeborn.worker.storage.disk.reserve.size | 5G | false | Celeborn worker reserved space for each disk. | 0.3.0 | celeborn.worker.disk.reserve.size | 
 | celeborn.worker.storage.expireDirs.timeout | 1h | false | The timeout for a expire dirs to be deleted on disk. | 0.3.2 |  | 
-| celeborn.worker.storage.storagePolicy.createFilePolicy | &lt;undefined&gt; | false | This defined the order for creating files across available storages. Available storages options are: MEMORY,SSD,HDD,HDFS,S3,OSS | 0.5.1 |  | 
-| celeborn.worker.storage.storagePolicy.evictPolicy | &lt;undefined&gt; | false | This define the order of evict files if the storages are available. Available storages: MEMORY,SSD,HDD,HDFS,S3,OSS. Definition: StorageTypes|StorageTypes|StorageTypes. Example: MEMORY,SSD|SSD,HDFS. The example means that a MEMORY shuffle file can be evicted to SSD and a SSD shuffle file can be evicted to HDFS. | 0.5.1 |  | 
+| celeborn.worker.storage.storagePolicy.createFilePolicy | &lt;undefined&gt; | false | This defined the order for creating files across available storages. Available storages options are: MEMORY,SSD,HDD,HDFS,S3,OSS,GCS | 0.5.1 |  | 
+| celeborn.worker.storage.storagePolicy.evictPolicy | &lt;undefined&gt; | false | This define the order of evict files if the storages are available. Available storages: MEMORY,SSD,HDD,HDFS,S3,OSS,GCS. Definition: StorageTypes|StorageTypes|StorageTypes. Example: MEMORY,SSD|SSD,HDFS. The example means that a MEMORY shuffle file can be evicted to SSD and a SSD shuffle file can be evicted to HDFS. | 0.5.1 |  | 
 | celeborn.worker.storage.workingDir | celeborn-worker/shuffle_data | false | Worker's working dir path name. | 0.3.0 | celeborn.worker.workingDir | 
 | celeborn.worker.writer.close.timeout | 120s | false | Timeout for a file writer to close | 0.2.0 |  | 
 | celeborn.worker.writer.create.maxAttempts | 3 | false | Retry count for a file writer to create if its creation was failed. | 0.2.0 |  | 

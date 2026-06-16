@@ -91,7 +91,10 @@ license: |
 | celeborn.quota.tenant.enabled | true | false | Whether to enable tenant-level quota. | 0.6.0 |  | 
 | celeborn.quota.user.enabled | true | false | Whether to enable user-level quota. | 0.6.0 |  | 
 | celeborn.redaction.regex | (?i)secret|password|token|access[.]key | false | Regex to decide which Celeborn configuration properties and environment variables in master and worker environments contain sensitive information. When this regex matches a property key or value, the value is redacted from the logging. | 0.5.0 |  | 
-| celeborn.storage.availableTypes | HDD | false | Enabled storages. Available options: MEMORY,HDD,SSD,HDFS,S3,OSS. Note: HDD and SSD would be treated as identical. | 0.3.0 | celeborn.storage.activeTypes | 
+| celeborn.storage.availableTypes | HDD | false | Enabled storages. Available options: MEMORY,HDD,SSD,HDFS,S3,OSS,GCS. Note: HDD and SSD would be treated as identical. | 0.3.0 | celeborn.storage.activeTypes | 
+| celeborn.storage.gcs.credentials.path | &lt;undefined&gt; | false | Optional path to a GCS service-account JSON key file. If unset, Application Default Credentials (ADC) are used. | 0.7.0 |  | 
+| celeborn.storage.gcs.dir | &lt;undefined&gt; | false | GCS base directory (gs://bucket/path) for Celeborn to store shuffle data. Standard (regional/multi-region) buckets only; zonal/Rapid buckets are not supported. | 0.7.0 |  | 
+| celeborn.storage.gcs.project.id | &lt;undefined&gt; | false | Optional GCP project id override for GCS access. | 0.7.0 |  | 
 | celeborn.storage.hdfs.dir | &lt;undefined&gt; | false | HDFS base directory for Celeborn to store shuffle data. | 0.2.0 |  | 
 | celeborn.storage.hdfs.kerberos.keytab | &lt;undefined&gt; | false | Kerberos keytab file path for HDFS storage connection. | 0.3.2 |  | 
 | celeborn.storage.hdfs.kerberos.principal | &lt;undefined&gt; | false | Kerberos principal for HDFS storage connection. | 0.3.2 |  | 
