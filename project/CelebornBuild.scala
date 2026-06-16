@@ -54,6 +54,8 @@ object Dependencies {
   val hadoopVersion = "3.3.6"
   val awsS3Version = "1.12.532"
   val aliyunOssVersion = "3.13.0"
+  val googleCloudStorageVersion = "2.67.0"
+  val gcsConnectorVersion = "hadoop3-2.2.26"
   val junitInterfaceVersion = "0.13.3"
   // don't forget update `junitInterfaceVersion` when we upgrade junit
   val junitVersion = "4.13.2"
@@ -138,6 +140,8 @@ object Dependencies {
   val commonsCollections = "commons-collections" % "commons-collections" % commonsCollectionsVersion
   val hadoopAliyun = "org.apache.hadoop" % "hadoop-aliyun" % hadoopVersion
   val aliyunOss = "com.aliyun.oss" % "aliyun-sdk-oss" % aliyunOssVersion
+  val googleCloudStorage = "com.google.cloud" % "google-cloud-storage" % googleCloudStorageVersion
+  val gcsConnector = "com.google.cloud.bigdataoss" % "gcs-connector" % gcsConnectorVersion
   val ioDropwizardMetricsCore = "io.dropwizard.metrics" % "metrics-core" % metricsVersion
   val ioDropwizardMetricsGraphite = "io.dropwizard.metrics" % "metrics-graphite" % metricsVersion excludeAll (
     ExclusionRule("com.rabbitmq", "amqp-client"))
@@ -506,9 +510,10 @@ object Utils {
       profiles
   }
 
-  val celeborMPUProject = profiles.find(p => p.startsWith("aws") || p.startsWith("aliyun")) match {
+  val celeborMPUProject = profiles.find(p => p.startsWith("aws") || p.startsWith("aliyun") || p.startsWith("gcp")) match {
     case Some("aws") => Some(CeleborMPU.celeborMPU)
     case Some("aliyun") => Some(CeleborMPU.celeborMPUOss)
+    case Some("gcp") => Some(CeleborMPU.celeborMPUGcs)
     case _ => None
   }
 
@@ -627,6 +632,7 @@ object CeleborMPU {
 
   lazy val hadoopAwsDependencies = Seq(Dependencies.hadoopAws, Dependencies.awsS3, Dependencies.awsSTS)
   lazy val hadoopAliyunDependencies = Seq(Dependencies.commonsCollections, Dependencies.hadoopAliyun, Dependencies.aliyunOss)
+  lazy val hadoopGcsDependencies = Seq(Dependencies.googleCloudStorage, Dependencies.gcsConnector)
 
   lazy val celeborMPU = Project("celeborn-multipart-uploader-s3", file("multipart-uploader/multipart-uploader-s3"))
     .dependsOn(CelebornService.service % "test->test;compile->compile")
@@ -646,6 +652,16 @@ object CeleborMPU {
         Dependencies.log4j12Api,
         Dependencies.log4jSlf4jImpl,
       ) ++ hadoopAliyunDependencies
+    )
+
+  lazy val celeborMPUGcs = Project("celeborn-multipart-uploader-gcs", file("multipart-uploader/multipart-uploader-gcs"))
+    .dependsOn(CelebornService.service % "test->test;compile->compile")
+    .settings (
+      commonSettings,
+      libraryDependencies ++= Seq(
+        Dependencies.log4j12Api,
+        Dependencies.log4jSlf4jImpl,
+      ) ++ hadoopGcsDependencies
     )
 }
 
@@ -790,6 +806,8 @@ object CelebornMaster {
       CeleborMPU.hadoopAwsDependencies
     } else if (profiles.exists(_.startsWith("aliyun"))) {
       CeleborMPU.hadoopAliyunDependencies
+    } else if (profiles.exists(_.startsWith("gcp"))) {
+      CeleborMPU.hadoopGcsDependencies
     } else {
       Seq.empty
     }
@@ -839,6 +857,8 @@ object CelebornWorker {
     worker = worker.dependsOn(CeleborMPU.celeborMPU)
   } else if (profiles.exists(_.startsWith("aliyun"))) {
     worker = worker.dependsOn(CeleborMPU.celeborMPUOss)
+  } else if (profiles.exists(_.startsWith("gcp"))) {
+    worker = worker.dependsOn(CeleborMPU.celeborMPUGcs)
   }
 
   worker = worker.settings(
