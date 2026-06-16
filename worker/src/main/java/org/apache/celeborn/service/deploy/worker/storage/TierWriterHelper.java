@@ -20,6 +20,7 @@ package org.apache.celeborn.service.deploy.worker.storage;
 import org.apache.hadoop.fs.FileSystem;
 
 import org.apache.celeborn.reflect.DynConstructors;
+import org.apache.celeborn.reflect.DynMethods;
 import org.apache.celeborn.server.common.service.mpu.MultipartUploadHandler;
 
 public class TierWriterHelper {
@@ -44,6 +45,30 @@ public class TierWriterHelper {
     return (MultipartUploadHandler)
         DynConstructors.builder()
             .impl("org.apache.celeborn.S3MultipartUploadHandler", AutoCloseable.class, String.class)
+            .build()
+            .newInstance(sharedState, key);
+  }
+
+  public static AutoCloseable getGcsMultipartUploadHandlerSharedState(
+      String projectId, String credentialsPath, String bucketName, boolean skipBucketCheck) {
+    return (AutoCloseable)
+        DynMethods.builder("newSharedState")
+            .impl(
+                "org.apache.celeborn.GcsMultipartUploadHandler",
+                String.class,
+                String.class,
+                String.class,
+                boolean.class)
+            .buildStatic()
+            .invoke(projectId, credentialsPath, bucketName, skipBucketCheck);
+  }
+
+  public static MultipartUploadHandler getGcsMultipartUploadHandler(
+      AutoCloseable sharedState, String key) {
+    return (MultipartUploadHandler)
+        DynConstructors.builder()
+            .impl(
+                "org.apache.celeborn.GcsMultipartUploadHandler", AutoCloseable.class, String.class)
             .build()
             .newInstance(sharedState, key);
   }
