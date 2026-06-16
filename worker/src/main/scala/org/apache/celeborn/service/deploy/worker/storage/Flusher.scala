@@ -260,3 +260,28 @@ final private[worker] class OssFlusher(
 
   override def getFlushTimeMetric(): String = WorkerSource.FLUSH_OSS_DATA_TIME
 }
+
+final private[worker] class GcsFlusher(
+    workerSource: AbstractSource,
+    gcsFlusherThreads: Int,
+    allocator: ByteBufAllocator,
+    maxComponents: Int,
+    reuseCopyBuffer: Boolean,
+    maxTaskSize: Long) extends Flusher(
+    workerSource,
+    gcsFlusherThreads,
+    allocator,
+    maxComponents,
+    null,
+    "GCS",
+    reuseCopyBuffer,
+    maxTaskSize) with Logging {
+
+  override def processIOException(e: IOException, deviceErrorType: DiskStatus): Unit = {
+    logError(s"$this write failed, reason $deviceErrorType ,exception: $e")
+  }
+
+  override def toString: String = s"gcsFlusher@$flusherId"
+
+  override def getFlushTimeMetric(): String = WorkerSource.FLUSH_GCS_DATA_TIME
+}

@@ -73,6 +73,8 @@ class WorkerSource(conf: CelebornConf) extends AbstractSource(conf, Role.WORKER)
   addCounter(OSS_FLUSH_SIZE)
   addCounter(S3_FLUSH_COUNT)
   addCounter(S3_FLUSH_SIZE)
+  addCounter(GCS_FLUSH_COUNT)
+  addCounter(GCS_FLUSH_SIZE)
 
   // add timers
   addTimer(COMMIT_FILES_TIME)
@@ -81,6 +83,7 @@ class WorkerSource(conf: CelebornConf) extends AbstractSource(conf, Role.WORKER)
   addTimer(FLUSH_HDFS_DATA_TIME)
   addTimer(FLUSH_OSS_DATA_TIME)
   addTimer(FLUSH_S3_DATA_TIME)
+  addTimer(FLUSH_GCS_DATA_TIME)
   addTimer(PRIMARY_PUSH_DATA_TIME)
   addTimer(REPLICA_PUSH_DATA_TIME)
 
@@ -215,6 +218,7 @@ object WorkerSource {
   val FLUSH_HDFS_DATA_TIME = "FlushHdfsDataTime"
   val FLUSH_OSS_DATA_TIME = "FlushOssDataTime"
   val FLUSH_S3_DATA_TIME = "FlushS3DataTime"
+  val FLUSH_GCS_DATA_TIME = "FlushGcsDataTime"
   val COMMIT_FILES_TIME = "CommitFilesTime"
   val COMMIT_FILES_FAIL_COUNT = "CommitFilesFailCount"
   val FLUSH_WORKING_QUEUE_SIZE = "FlushWorkingQueueSize"
@@ -226,6 +230,8 @@ object WorkerSource {
   val OSS_FLUSH_SIZE = "OssFlushSize"
   val S3_FLUSH_COUNT = "S3FlushCount"
   val S3_FLUSH_SIZE = "S3FlushSize"
+  val GCS_FLUSH_COUNT = "GcsFlushCount"
+  val GCS_FLUSH_SIZE = "GcsFlushSize"
 
   // slots
   val SLOTS_ALLOCATED = "SlotsAllocated"
