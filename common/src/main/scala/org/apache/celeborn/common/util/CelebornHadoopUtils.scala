@@ -78,6 +78,21 @@ object CelebornHadoopUtils extends Logging {
       hadoopConf.set("fs.oss.accessKeyId", conf.ossAccessKey)
       hadoopConf.set("fs.oss.accessKeySecret", conf.ossSecretKey)
       hadoopConf.set("fs.oss.endpoint", conf.ossEndpoint)
+    } else if (conf.gcsDir.nonEmpty) {
+      hadoopConf.set("fs.gs.impl", "com.google.cloud.hadoop.fs.gcs.GoogleHadoopFileSystem")
+      hadoopConf.set(
+        "fs.AbstractFileSystem.gs.impl",
+        "com.google.cloud.hadoop.fs.gcs.GoogleHadoopFS")
+      conf.gcsCredentialsPath match {
+        case Some(keyfile) =>
+          hadoopConf.set("fs.gs.auth.type", "SERVICE_ACCOUNT_JSON_KEYFILE")
+          hadoopConf.set("fs.gs.auth.service.account.json.keyfile", keyfile)
+        case None =>
+          hadoopConf.set("fs.gs.auth.type", "APPLICATION_DEFAULT")
+      }
+      conf.gcsProjectId.foreach(hadoopConf.set("fs.gs.project.id", _))
+      // Random reads dominate shuffle fetch; avoid stream re-opens.
+      hadoopConf.set("fs.gs.inputstream.fadvise", "RANDOM")
     }
     appendSparkHadoopConfigs(conf, hadoopConf)
     hadoopConf
