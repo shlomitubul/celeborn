@@ -73,31 +73,25 @@ public class GcsMultipartUploadHandlerSuiteJ {
     verify(client, never()).uploadPart(any(), any());
   }
 
-  @Test(expected = java.io.IOException.class)
-  public void nonFinalPartBelow5MiBIsRejected() throws Exception {
-    MultipartUploadClient client = mock(MultipartUploadClient.class, RETURNS_DEEP_STUBS);
-    GcsMultipartUploadHandler handler = new GcsMultipartUploadHandler(state(client), "k");
-    handler.startUpload();
-    handler.putPart(new ByteArrayInputStream(new byte[1024]), 1, false); // < 5 MiB, not final
-  }
-
   @Test
   public void completeAccumulatesETagsInAscendingPartOrder() throws Exception {
     MultipartUploadClient client = mock(MultipartUploadClient.class, RETURNS_DEEP_STUBS);
     UploadPartResponse resp1 = mock(UploadPartResponse.class);
     UploadPartResponse resp2 = mock(UploadPartResponse.class);
-    when(resp1.eTag()).thenReturn("etag-part-2");
-    when(resp2.eTag()).thenReturn("etag-part-1");
-    // Returned in call order: first putPart (part 2) gets resp1, second (part 1) gets resp2.
+    when(resp1.eTag()).thenReturn("etag-part-1");
+    when(resp2.eTag()).thenReturn("etag-part-2");
+    // Returned in call order: handler assigns part 1 then part 2.
     when(client.uploadPart(any(), any())).thenReturn(resp1, resp2);
 
     GcsMultipartUploadHandler handler =
         new GcsMultipartUploadHandler(state(client), "app/0/file");
     handler.startUpload();
 
-    // Put parts OUT OF ORDER; both non-final 6 MiB buffers pass the 5 MiB guard.
-    handler.putPart(new ByteArrayInputStream(new byte[6 * 1024 * 1024]), 2, false);
-    handler.putPart(new ByteArrayInputStream(new byte[6 * 1024 * 1024]), 1, false);
+    // Two LARGE non-final flushes (each >= 5 MiB) each become their own part. The handler owns
+    // the part numbers, so the incoming partNumbers are ignored.
+    handler.putPart(new ByteArrayInputStream(new byte[6 * 1024 * 1024]), 99, false);
+    handler.putPart(new ByteArrayInputStream(new byte[6 * 1024 * 1024]), 7, false);
+    verify(client, times(2)).uploadPart(any(), any());
 
     handler.complete();
 
@@ -108,10 +102,70 @@ public class GcsMultipartUploadHandlerSuiteJ {
 
     List<CompletedPart> parts = captor.getValue().multipartUpload().parts();
     assertEquals(2, parts.size());
-    assertEquals(1, parts.get(0).partNumber()); // part 1 before part 2
+    assertEquals(1, parts.get(0).partNumber()); // ascending: handler-assigned 1, 2
     assertEquals(2, parts.get(1).partNumber());
     assertEquals("etag-part-1", parts.get(0).eTag());
     assertEquals("etag-part-2", parts.get(1).eTag());
+  }
+
+  @Test
+  public void smallNonFinalFlushesAccumulateIntoOnePart() throws Exception {
+    MultipartUploadClient client = mock(MultipartUploadClient.class, RETURNS_DEEP_STUBS);
+    UploadPartResponse resp = mock(UploadPartResponse.class);
+    when(resp.eTag()).thenReturn("etag-1");
+    when(client.uploadPart(any(), any())).thenReturn(resp);
+
+    GcsMultipartUploadHandler handler =
+        new GcsMultipartUploadHandler(state(client), "app/0/file");
+    handler.startUpload();
+
+    // Three 1 MiB non-final flushes total 3 MiB (< 5 MiB) -> nothing uploaded yet.
+    handler.putPart(new ByteArrayInputStream(new byte[1 * 1024 * 1024]), 1, false);
+    handler.putPart(new ByteArrayInputStream(new byte[1 * 1024 * 1024]), 2, false);
+    handler.putPart(new ByteArrayInputStream(new byte[1 * 1024 * 1024]), 3, false);
+    verify(client, never()).uploadPart(any(), any());
+
+    // Final flush uploads everything as a single (final) part.
+    handler.putPart(new ByteArrayInputStream(new byte[0]), 4, true);
+    verify(client, times(1)).uploadPart(any(), any());
+
+    handler.complete();
+    verify(client, times(1)).completeMultipartUpload(any());
+    verify(client, never()).abortMultipartUpload(any());
+  }
+
+  @Test
+  public void crossesThresholdUploadsThenFinalRemainder() throws Exception {
+    MultipartUploadClient client = mock(MultipartUploadClient.class, RETURNS_DEEP_STUBS);
+    UploadPartResponse resp1 = mock(UploadPartResponse.class);
+    UploadPartResponse resp2 = mock(UploadPartResponse.class);
+    when(resp1.eTag()).thenReturn("etag-part-1");
+    when(resp2.eTag()).thenReturn("etag-part-2");
+    when(client.uploadPart(any(), any())).thenReturn(resp1, resp2);
+
+    GcsMultipartUploadHandler handler =
+        new GcsMultipartUploadHandler(state(client), "app/0/file");
+    handler.startUpload();
+
+    // 3 MiB + 3 MiB = 6 MiB crosses 5 MiB -> exactly one non-final part uploaded.
+    handler.putPart(new ByteArrayInputStream(new byte[3 * 1024 * 1024]), 1, false);
+    verify(client, never()).uploadPart(any(), any());
+    handler.putPart(new ByteArrayInputStream(new byte[3 * 1024 * 1024]), 2, false);
+    verify(client, times(1)).uploadPart(any(), any());
+
+    // A small final remainder becomes the second (final) part.
+    handler.putPart(new ByteArrayInputStream(new byte[1024]), 3, true);
+    verify(client, times(2)).uploadPart(any(), any());
+
+    handler.complete();
+
+    ArgumentCaptor<CompleteMultipartUploadRequest> captor =
+        ArgumentCaptor.forClass(CompleteMultipartUploadRequest.class);
+    verify(client, times(1)).completeMultipartUpload(captor.capture());
+    List<CompletedPart> parts = captor.getValue().multipartUpload().parts();
+    assertEquals(2, parts.size());
+    assertEquals(1, parts.get(0).partNumber());
+    assertEquals(2, parts.get(1).partNumber());
   }
 
   @Test

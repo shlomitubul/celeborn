@@ -17,6 +17,7 @@
 
 package org.apache.celeborn;
 
+import java.io.ByteArrayOutputStream;
 import java.io.IOException;
 import java.io.InputStream;
 import java.nio.ByteBuffer;
@@ -50,6 +51,12 @@ public class GcsMultipartUploadHandler implements MultipartUploadHandler {
   private final GcsMultipartUploadHandlerSharedState sharedState;
   private final String key;
   private final List<CompletedPart> completedParts = new ArrayList<>();
+  // Internal accumulation buffer. GCS XML MPU requires every NON-final part to be >= 5 MiB, but the
+  // worker can deliver sub-5MiB flushes under memory pressure. We buffer here until we cross the
+  // threshold so we never emit an illegal small non-final part (which would crash the job). The
+  // handler owns the real GCS part numbers; the partNumber passed to putPart is ignored.
+  private final ByteArrayOutputStream buffer = new ByteArrayOutputStream();
+  private int nextPartNumber = 1;
   private String uploadId;
 
   public static class GcsMultipartUploadHandlerSharedState implements AutoCloseable {
@@ -135,31 +142,49 @@ public class GcsMultipartUploadHandler implements MultipartUploadHandler {
       throws IOException {
     try (InputStream in = inputStream) {
       byte[] bytes = ByteStreams.toByteArray(in); // Guava; Java 8-safe (no readAllBytes)
-      int partSize = bytes.length;
-      if (partSize == 0) {
-        logger.debug("key {} uploadId {} skip empty part {}", key, uploadId, partNumber);
+      // Zero-byte short-circuit: nothing to add and nothing pending to flush.
+      if (bytes.length == 0 && !(finalFlush && buffer.size() > 0)) {
+        logger.debug("key {} uploadId {} skip empty part (incoming {})", key, uploadId, partNumber);
         return;
       }
-      if (!finalFlush && partSize < MIN_PART_SIZE) {
-        throw new IOException(
-            "GCS XML MPU non-final part " + partNumber + " is " + partSize
-                + " bytes (< 5 MiB minimum). Increase celeborn.worker.flusher.gcs.buffer.size.");
+      buffer.write(bytes); // append to internal accumulation buffer
+
+      if (finalFlush) {
+        // Final part has no minimum size. If nothing was ever buffered and no parts uploaded,
+        // upload nothing so complete() aborts (empty-file/abort parity with S3).
+        if (buffer.size() > 0) {
+          uploadBufferedPart();
+        }
+      } else {
+        // Non-final flush: only upload once we have crossed the 5 MiB minimum. Upload the entire
+        // current buffer as one part (parts may exceed 5 MiB; max is 5 GiB). Sub-5MiB flushes
+        // simply accumulate until they cross the threshold.
+        if (buffer.size() >= MIN_PART_SIZE) {
+          uploadBufferedPart();
+        }
       }
-      UploadPartRequest req =
-          UploadPartRequest.builder()
-              .bucket(sharedState.bucketName)
-              .key(key)
-              .uploadId(uploadId)
-              .partNumber(partNumber)
-              .build();
-      UploadPartResponse resp =
-          sharedState.client.uploadPart(req, RequestBody.of(ByteBuffer.wrap(bytes)));
-      completedParts.add(
-          CompletedPart.builder().partNumber(partNumber).eTag(resp.eTag()).build());
     } catch (RuntimeException | IOException e) {
       logger.error("Failed to upload GCS part", e);
       throw e;
     }
+  }
+
+  /** Upload the entire accumulation buffer as one GCS part, then reset the buffer. */
+  private void uploadBufferedPart() {
+    byte[] partBytes = buffer.toByteArray();
+    UploadPartRequest req =
+        UploadPartRequest.builder()
+            .bucket(sharedState.bucketName)
+            .key(key)
+            .uploadId(uploadId)
+            .partNumber(nextPartNumber)
+            .build();
+    UploadPartResponse resp =
+        sharedState.client.uploadPart(req, RequestBody.of(ByteBuffer.wrap(partBytes)));
+    completedParts.add(
+        CompletedPart.builder().partNumber(nextPartNumber).eTag(resp.eTag()).build());
+    nextPartNumber++;
+    buffer.reset();
   }
 
   @Override
