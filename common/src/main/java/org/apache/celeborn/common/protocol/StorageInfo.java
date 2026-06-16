@@ -27,7 +27,8 @@ public class StorageInfo implements Serializable {
     SSD(2),
     HDFS(3),
     OSS(4),
-    S3(5);
+    S3(5),
+    GCS(6);
 
     private final int value;
 
@@ -57,6 +58,8 @@ public class StorageInfo implements Serializable {
   public static final int HDFS_MASK = 0b100;
   public static final int OSS_MASK = 0b1000;
   public static final int S3_MASK = 0b10000;
+  // Next free bit after S3_MASK(0b10000); hand-assigned scheme, not 1<<getValue().
+  public static final int GCS_MASK = 0b100000;
   public static final int ALL_TYPES_AVAILABLE_MASK = 0;
 
   // Default storage Type is MEMORY.
@@ -232,6 +235,19 @@ public class StorageInfo implements Serializable {
     return S3Available(availableStorageTypes);
   }
 
+  public static boolean GCSAvailable(int availableStorageTypes) {
+    return availableStorageTypes == ALL_TYPES_AVAILABLE_MASK
+        || (availableStorageTypes & GCS_MASK) > 0;
+  }
+
+  public boolean GCSAvailable() {
+    return GCSAvailable(availableStorageTypes);
+  }
+
+  public static boolean GCSOnly(int availableStorageTypes) {
+    return availableStorageTypes == GCS_MASK;
+  }
+
   @Override
   public boolean equals(Object o) {
     if (this == o) return true;
@@ -301,6 +317,9 @@ public class StorageInfo implements Serializable {
           break;
         case S3:
           ava = ava | S3_MASK;
+          break;
+        case GCS:
+          ava = ava | GCS_MASK;
           break;
       }
     }
