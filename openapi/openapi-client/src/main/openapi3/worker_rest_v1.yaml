@@ -694,6 +694,7 @@ components:
             - HDFS
             - OSS
             - S3
+            - GCS
         mapIdBitMap:
           type: string
           description: The map id bitmap hint.

@@ -102,7 +102,9 @@ public class PartitionLocationData {
     
     OSS("OSS"),
     
-    S3("S3");
+    S3("S3"),
+    
+    GCS("GCS");
 
     private String value;
 
