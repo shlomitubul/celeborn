@@ -23,6 +23,7 @@ import static org.mockito.Mockito.*;
 import java.io.ByteArrayInputStream;
 import java.util.List;
 
+import com.google.cloud.storage.Bucket;
 import com.google.cloud.storage.MultipartUploadClient;
 import com.google.cloud.storage.Storage;
 import com.google.cloud.storage.multipartupload.model.CompleteMultipartUploadRequest;
@@ -178,5 +179,33 @@ public class GcsMultipartUploadHandlerSuiteJ {
 
     verify(client).abortMultipartUpload(any());
     verify(client, never()).completeMultipartUpload(any());
+  }
+
+  @Test(expected = IllegalStateException.class)
+  public void validateStandardBucketRejectsZonalBucket() {
+    Storage storage = mock(Storage.class);
+    Bucket bucket = mock(Bucket.class);
+    // A zonal/Rapid bucket reports locationType "zone" (per gcloud / Rapid Bucket docs).
+    when(bucket.getLocationType()).thenReturn("zone");
+    when(storage.get("bucket")).thenReturn(bucket);
+    GcsMultipartUploadHandler.validateStandardBucket(storage, "bucket");
+  }
+
+  @Test
+  public void validateStandardBucketAcceptsRegionalBucket() {
+    Storage storage = mock(Storage.class);
+    Bucket bucket = mock(Bucket.class);
+    // Standard buckets report "region", "dual-region", or "multi-region".
+    when(bucket.getLocationType()).thenReturn("region");
+    when(storage.get("bucket")).thenReturn(bucket);
+    // Should NOT throw.
+    GcsMultipartUploadHandler.validateStandardBucket(storage, "bucket");
+  }
+
+  @Test(expected = IllegalStateException.class)
+  public void validateStandardBucketRejectsMissingBucket() {
+    Storage storage = mock(Storage.class);
+    when(storage.get("bucket")).thenReturn(null);
+    GcsMultipartUploadHandler.validateStandardBucket(storage, "bucket");
   }
 }

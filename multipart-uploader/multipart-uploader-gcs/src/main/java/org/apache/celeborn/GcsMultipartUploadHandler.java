@@ -110,8 +110,18 @@ public class GcsMultipartUploadHandler implements MultipartUploadHandler {
     return new GcsMultipartUploadHandlerSharedState(mpu, storage, bucketName);
   }
 
-  // Fail-closed: throw on a zonal/Rapid bucket (XML MPU unsupported there). VERIFY the exact
-  // location-type signal for zonal buckets against the pinned SDK (Task 16).
+  // Fail-closed: throw on a zonal/Rapid bucket (XML MPU unsupported there).
+  //
+  // Bucket.getLocationType() is a passthrough of the GCS JSON API "locationType" field; the SDK
+  // defines no enum of values. Standard buckets report "region", "dual-region", or "multi-region"
+  // (documented at cloud.google.com/storage/docs/json_api/v1/buckets). Zonal/Rapid buckets report
+  // "zone" (per the gcloud CLI / Rapid Bucket docs) -- but Google does NOT publish that literal in
+  // the official locationType enum reference, so the exact zonal value remains UNVERIFIED against a
+  // primary API-reference source / a real zonal bucket. We therefore keep a tolerant substring
+  // heuristic: contains("zon") matches "zone" and any future zonal variant, while NOT matching any
+  // of the three documented standard values (none contain "zon"). The fail-closed guard plus the
+  // celeborn.storage.gcs.skipBucketCompatibilityCheck escape hatch are the safety net if the real
+  // value ever differs.
   static void validateStandardBucket(Storage storage, String bucket) {
     Bucket b = storage.get(bucket);
     if (b == null) {
