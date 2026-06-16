@@ -166,10 +166,15 @@ public class DiskFileInfo extends FileInfo {
     return storageType == StorageInfo.Type.OSS;
   }
 
+  public boolean isGCS() {
+    return storageType == StorageInfo.Type.GCS;
+  }
+
   public boolean isDFS() {
     return storageType == StorageInfo.Type.HDFS
         || storageType == StorageInfo.Type.S3
-        || storageType == StorageInfo.Type.OSS;
+        || storageType == StorageInfo.Type.OSS
+        || storageType == StorageInfo.Type.GCS;
   }
 
   public StorageInfo.Type getStorageType() {
