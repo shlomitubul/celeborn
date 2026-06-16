@@ -174,3 +174,25 @@ private[worker] class OssFlushTask(
     }
   }
 }
+
+private[worker] class GcsFlushTask(
+    buffer: CompositeByteBuf,
+    notifier: FlushNotifier,
+    keepBuffer: Boolean,
+    source: AbstractSource,
+    gcsMultipartUploader: MultipartUploadHandler,
+    partNumber: Int,
+    finalFlush: Boolean = false)
+  extends DfsFlushTask(buffer, notifier, keepBuffer, source) {
+
+  override def flush(copyBytes: Array[Byte]): Unit = {
+    val readableBytes = buffer.readableBytes()
+    val bytes = convertBufferToBytes(buffer, copyBytes, readableBytes)
+    val inputStream = new ByteArrayInputStream(bytes, 0, readableBytes)
+    flush(inputStream) {
+      gcsMultipartUploader.putPart(inputStream, partNumber, finalFlush)
+      source.incCounter(WorkerSource.GCS_FLUSH_COUNT)
+      source.incCounter(WorkerSource.GCS_FLUSH_SIZE, readableBytes)
+    }
+  }
+}
