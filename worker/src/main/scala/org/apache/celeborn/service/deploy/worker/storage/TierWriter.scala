@@ -528,7 +528,8 @@ class DfsTierWriter(
     partitionDataWriterContext.getShuffleKey,
     storageManager) {
   assert(
-    storageType == StorageInfo.Type.HDFS || storageType == StorageInfo.Type.OSS || storageType == StorageInfo.Type.S3)
+    storageType == StorageInfo.Type.HDFS || storageType == StorageInfo.Type.OSS ||
+      storageType == StorageInfo.Type.S3 || storageType == StorageInfo.Type.GCS)
   flusherBufferSize = conf.workerHdfsFlusherBufferSize
   private val flushWorkerIndex: Int = flusher.getWorkerIndex
   val hadoopFs: FileSystem = StorageManager.hadoopFs.get(storageType)
@@ -537,6 +538,7 @@ class DfsTierWriter(
   private val workerReuseHdfsOutputStreamEnabled = conf.workerReuseHdfsOuputSteamEnabled
   private var s3MultipartUploadHandler: MultipartUploadHandler = _
   private var ossMultipartUploadHandler: MultipartUploadHandler = _
+  private var gcsMultipartUploadHandler: MultipartUploadHandler = _
   var partNumber: Int = 1
 
   this.flusherBufferSize =
@@ -544,6 +546,8 @@ class DfsTierWriter(
       conf.workerS3FlusherBufferSize
     } else if (dfsFileInfo.isOSS()) {
       conf.workerOssFlusherBufferSize
+    } else if (dfsFileInfo.isGCS()) {
+      conf.workerGcsFlusherBufferSize
     } else {
       conf.workerHdfsFlusherBufferSize
     }
@@ -582,6 +586,16 @@ class DfsTierWriter(
         ossSecretKey,
         key)
       ossMultipartUploadHandler.startUpload()
+    } else if (dfsFileInfo.isGCS) {
+      val uri = hadoopFs.getUri
+      val bucketName = uri.getHost
+      val index = dfsFileInfo.getFilePath.indexOf(bucketName)
+      val key = dfsFileInfo.getFilePath.substring(index + bucketName.length + 1)
+
+      this.gcsMultipartUploadHandler = TierWriterHelper.getGcsMultipartUploadHandler(
+        storageManager.gcsMultipartUploadHandlerSharedState,
+        key)
+      gcsMultipartUploadHandler.startUpload()
     }
   } catch {
     case _: IOException =>
@@ -626,6 +640,17 @@ class DfsTierWriter(
         true,
         source,
         ossMultipartUploadHandler,
+        partNumber,
+        finalFlush)
+      partNumber = partNumber + 1
+      flushTask
+    } else if (dfsFileInfo.isGCS) {
+      val flushTask = new GcsFlushTask(
+        flushBuffer,
+        notifier,
+        true,
+        source,
+        gcsMultipartUploadHandler,
         partNumber,
         finalFlush)
       partNumber = partNumber + 1
@@ -716,6 +741,10 @@ class DfsTierWriter(
       ossMultipartUploadHandler.complete()
       ossMultipartUploadHandler.close()
     }
+    if (gcsMultipartUploadHandler != null) {
+      gcsMultipartUploadHandler.complete()
+      gcsMultipartUploadHandler.close()
+    }
   }
 
   override def notifyFileCommitted(): Unit =
@@ -727,6 +756,9 @@ class DfsTierWriter(
     }
     if (ossMultipartUploadHandler != null) {
       ossMultipartUploadHandler.close()
+    }
+    if (gcsMultipartUploadHandler != null) {
+      gcsMultipartUploadHandler.close()
     }
   }
 
@@ -767,6 +799,11 @@ class DfsTierWriter(
       logWarning(s"Abort Oss multipart upload for ${fileInfo.getFilePath}")
       ossMultipartUploadHandler.abort()
       ossMultipartUploadHandler.close()
+    }
+    if (gcsMultipartUploadHandler != null) {
+      logWarning(s"Abort GCS multipart upload for ${fileInfo.getFilePath}")
+      gcsMultipartUploadHandler.abort()
+      gcsMultipartUploadHandler.close()
     }
   }
 }
