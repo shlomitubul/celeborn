@@ -674,6 +674,8 @@ class CelebornConf(loadDefaults: Boolean) extends Cloneable with Logging with Se
     get(ACTIVE_STORAGE_TYPES).contains(StorageInfo.Type.S3.name()) && get(S3_DIR).isDefined
   def hasOssStorage: Boolean =
     get(ACTIVE_STORAGE_TYPES).contains(StorageInfo.Type.OSS.name()) && get(OSS_DIR).isDefined
+  def hasGcsStorage: Boolean =
+    get(ACTIVE_STORAGE_TYPES).contains(StorageInfo.Type.GCS.name()) && get(GCS_DIR).isDefined
   def masterSlotAssignLoadAwareDiskGroupNum: Int = get(MASTER_SLOT_ASSIGN_LOADAWARE_DISKGROUP_NUM)
   def masterSlotAssignLoadAwareDiskGroupGradient: Double =
     get(MASTER_SLOT_ASSIGN_LOADAWARE_DISKGROUP_GRADIENT)
@@ -1278,6 +1280,19 @@ class CelebornConf(loadDefaults: Boolean) extends Cloneable with Logging with Se
   def ossSecretKey: String = get(OSS_SECRET_KEY).getOrElse("")
   def ossIgnoreCredentials: Boolean = get(OSS_IGNORE_CREDENTIALS)
 
+  def gcsDir: String = {
+    get(GCS_DIR).map { gcsDir =>
+      if (!Utils.isGcsPath(gcsDir)) {
+        log.error(s"${GCS_DIR.key} configuration is wrong $gcsDir. Disable GCS support.")
+        ""
+      } else {
+        gcsDir
+      }
+    }.getOrElse("")
+  }
+  def gcsCredentialsPath: Option[String] = get(GCS_CREDENTIALS_PATH)
+  def gcsProjectId: Option[String] = get(GCS_PROJECT_ID)
+
   def hdfsDir: String = {
     get(HDFS_DIR).map {
       hdfsDir =>
@@ -1294,7 +1309,8 @@ class CelebornConf(loadDefaults: Boolean) extends Cloneable with Logging with Se
     val supported = Seq(
       (StorageInfo.Type.HDFS, HDFS_DIR, Utils.isHdfsPath _),
       (StorageInfo.Type.S3, S3_DIR, Utils.isS3Path _),
-      (StorageInfo.Type.OSS, OSS_DIR, Utils.isOssPath _))
+      (StorageInfo.Type.OSS, OSS_DIR, Utils.isOssPath _),
+      (StorageInfo.Type.GCS, GCS_DIR, Utils.isGcsPath _))
 
     val activeStorageTypes =
       get(ACTIVE_STORAGE_TYPES).split(",").map(StorageInfo.Type.valueOf).toList
@@ -1333,7 +1349,7 @@ class CelebornConf(loadDefaults: Boolean) extends Cloneable with Logging with Se
   def workerStoragePolicyCreateFilePolicy: Option[List[String]] =
     get(WORKER_STORAGE_CREATE_FILE_POLICY).map {
       policy => policy.split(",").map(_.trim).toList
-    }.orElse(Some(List("MEMORY", "SSD", "HDD", "HDFS", "S3", "OSS")))
+    }.orElse(Some(List("MEMORY", "SSD", "HDD", "HDFS", "S3", "OSS", "GCS")))
 
   def workerStoragePolicyEvictFilePolicy: Option[Map[String, List[String]]] =
     get(WORKER_STORAGE_EVICT_POLICY).map {
@@ -1342,7 +1358,7 @@ class CelebornConf(loadDefaults: Boolean) extends Cloneable with Logging with Se
           val groupArr = group.split(",")
           Map(groupArr.head -> groupArr.slice(1, groupArr.length).toList)
         }).reduce(_ ++ _)
-    }.orElse(Some(Map("MEMORY" -> List("SSD", "HDD", "HDFS", "S3", "OSS"))))
+    }.orElse(Some(Map("MEMORY" -> List("SSD", "HDD", "HDFS", "S3", "OSS", "GCS"))))
 
   // //////////////////////////////////////////////////////
   //                   Decommission                      //
@@ -1379,12 +1395,15 @@ class CelebornConf(loadDefaults: Boolean) extends Cloneable with Logging with Se
   def workerHdfsFlusherBufferSize: Long = get(WORKER_HDFS_FLUSHER_BUFFER_SIZE)
   def workerS3FlusherBufferSize: Long = get(WORKER_S3_FLUSHER_BUFFER_SIZE)
   def workerOssFlusherBufferSize: Long = get(WORKER_OSS_FLUSHER_BUFFER_SIZE)
+  def workerGcsFlusherBufferSize: Long = get(WORKER_GCS_FLUSHER_BUFFER_SIZE)
   def workerWriterCloseTimeoutMs: Long = get(WORKER_WRITER_CLOSE_TIMEOUT)
   def workerHddFlusherThreads: Int = get(WORKER_FLUSHER_HDD_THREADS)
   def workerSsdFlusherThreads: Int = get(WORKER_FLUSHER_SSD_THREADS)
   def workerHdfsFlusherThreads: Int = get(WORKER_FLUSHER_HDFS_THREADS)
   def workerS3FlusherThreads: Int = get(WORKER_FLUSHER_S3_THREADS)
   def workerOssFlusherThreads: Int = get(WORKER_FLUSHER_OSS_THREADS)
+  def workerGcsFlusherThreads: Int = get(WORKER_FLUSHER_GCS_THREADS)
+  def gcsSkipBucketCompatibilityCheck: Boolean = get(GCS_SKIP_BUCKET_COMPATIBILITY_CHECK)
   def workerCreateWriterMaxAttempts: Int = get(WORKER_WRITER_CREATE_MAX_ATTEMPTS)
   def workerCreateWriterParallelEnabled: Boolean = get(WORKER_WRITER_CREATE_PARALLEL_ENABLED)
   def workerCreateWriterParallelThreads: Int =
@@ -3379,6 +3398,42 @@ object CelebornConf extends Logging {
       .stringConf
       .createOptional
 
+  val GCS_DIR: OptionalConfigEntry[String] =
+    buildConf("celeborn.storage.gcs.dir")
+      .categories("worker", "master", "client")
+      .version("0.7.0")
+      .doc("GCS base directory (gs://bucket/path) for Celeborn to store shuffle data. " +
+        "Standard (regional/multi-region) buckets only; zonal/Rapid buckets are not supported.")
+      .stringConf
+      .createOptional
+
+  val GCS_CREDENTIALS_PATH: OptionalConfigEntry[String] =
+    buildConf("celeborn.storage.gcs.credentials.path")
+      .categories("worker", "master", "client")
+      .version("0.7.0")
+      .doc("Optional path to a GCS service-account JSON key file. " +
+        "If unset, Application Default Credentials (ADC) are used.")
+      .stringConf
+      .createOptional
+
+  val GCS_PROJECT_ID: OptionalConfigEntry[String] =
+    buildConf("celeborn.storage.gcs.project.id")
+      .categories("worker", "master", "client")
+      .version("0.7.0")
+      .doc("Optional GCP project id override for GCS access.")
+      .stringConf
+      .createOptional
+
+  val GCS_SKIP_BUCKET_COMPATIBILITY_CHECK: ConfigEntry[Boolean] =
+    buildConf("celeborn.storage.gcs.skipBucketCompatibilityCheck")
+      .categories("worker")
+      .version("0.7.0")
+      .doc("Skip the startup check that rejects zonal/Rapid GCS buckets (which do not " +
+        "support XML multipart uploads). Enable only if the worker's credentials lack " +
+        "storage.buckets.get permission and you have verified the bucket is standard.")
+      .booleanConf
+      .createWithDefault(false)
+
   val WORKER_DISK_RESERVE_SIZE: ConfigEntry[Long] =
     buildConf("celeborn.worker.storage.disk.reserve.size")
       .withAlternative("celeborn.worker.disk.reserve.size")
@@ -3428,20 +3483,20 @@ object CelebornConf extends Logging {
     buildConf("celeborn.worker.storage.storagePolicy.createFilePolicy")
       .categories("worker")
       .doc("This defined the order for creating files across available storages." +
-        " Available storages options are: MEMORY,SSD,HDD,HDFS,S3,OSS")
+        " Available storages options are: MEMORY,SSD,HDD,HDFS,S3,OSS,GCS")
       .version("0.5.1")
       .stringConf
       .checkValue(
         _.split(",").map(str => StorageInfo.typeNames.contains(str.trim.toUpperCase)).forall(p =>
           p),
-        "Will use default create file order. Default order: MEMORY,SSD,HDD,HDFS,S3,OSS")
+        "Will use default create file order. Default order: MEMORY,SSD,HDD,HDFS,S3,OSS,GCS")
       .createOptional
 
   val WORKER_STORAGE_EVICT_POLICY: OptionalConfigEntry[String] =
     buildConf("celeborn.worker.storage.storagePolicy.evictPolicy")
       .categories("worker")
       .doc("This define the order of evict files if the storages are available." +
-        " Available storages: MEMORY,SSD,HDD,HDFS,S3,OSS. " +
+        " Available storages: MEMORY,SSD,HDD,HDFS,S3,OSS,GCS. " +
         "Definition: StorageTypes|StorageTypes|StorageTypes. " +
         "Example: MEMORY,SSD|SSD,HDFS." +
         " The example means that a MEMORY shuffle file can be evicted to SSD " +
@@ -3879,6 +3934,16 @@ object CelebornConf extends Logging {
       .bytesConf(ByteUnit.BYTE)
       .createWithDefaultString("6m")
 
+  val WORKER_GCS_FLUSHER_BUFFER_SIZE: ConfigEntry[Long] =
+    buildConf("celeborn.worker.flusher.gcs.buffer.size")
+      .categories("worker")
+      .version("0.7.0")
+      .doc("Size of buffer used by a GCS flusher. Must be >= 5m: GCS XML multipart " +
+        "uploads require every non-final part to be at least 5 MiB.")
+      .bytesConf(ByteUnit.BYTE)
+      .checkValue(_ >= 5 * 1024 * 1024, "GCS flusher buffer size must be at least 5m.")
+      .createWithDefaultString("6m")
+
   val WORKER_WRITER_CLOSE_TIMEOUT: ConfigEntry[Long] =
     buildConf("celeborn.worker.writer.close.timeout")
       .categories("worker")
@@ -3932,6 +3997,14 @@ object CelebornConf extends Logging {
       .categories("worker")
       .doc("Flusher's thread count used for write data to OSS.")
       .version("0.6.0")
+      .intConf
+      .createWithDefault(8)
+
+  val WORKER_FLUSHER_GCS_THREADS: ConfigEntry[Int] =
+    buildConf("celeborn.worker.flusher.gcs.threads")
+      .categories("worker")
+      .doc("Flusher's thread count used for write data to GCS.")
+      .version("0.7.0")
       .intConf
       .createWithDefault(8)
 
@@ -6217,7 +6290,7 @@ object CelebornConf extends Logging {
       .categories("master", "worker", "client")
       .version("0.3.0")
       .doc(
-        "Enabled storages. Available options: MEMORY,HDD,SSD,HDFS,S3,OSS. Note: HDD and SSD would be treated as identical.")
+        "Enabled storages. Available options: MEMORY,HDD,SSD,HDFS,S3,OSS,GCS. Note: HDD and SSD would be treated as identical.")
       .stringConf
       .transform(_.toUpperCase(Locale.ROOT))
       .checkValue(p => p.split(",").map(StorageInfo.validate).reduce(_ && _), "")

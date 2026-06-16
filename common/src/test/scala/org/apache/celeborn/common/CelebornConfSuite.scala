@@ -430,7 +430,7 @@ class CelebornConfSuite extends CelebornFunSuite {
 
     conf.unset("celeborn.worker.storage.storagePolicy.createFilePolicy")
     val createFilePolicy3 = conf.workerStoragePolicyCreateFilePolicy
-    assert(List("MEMORY", "SSD", "HDD", "HDFS", "S3", "OSS") == createFilePolicy3.get)
+    assert(List("MEMORY", "SSD", "HDD", "HDFS", "S3", "OSS", "GCS") == createFilePolicy3.get)
 
     try {
       conf.set("celeborn.worker.storage.storagePolicy.createFilePolicy", "ABC")
@@ -453,7 +453,7 @@ class CelebornConfSuite extends CelebornFunSuite {
 
     conf.unset("celeborn.worker.storage.storagePolicy.evictPolicy")
     val evictPolicy3 = conf.workerStoragePolicyEvictFilePolicy
-    assert(Map("MEMORY" -> List("SSD", "HDD", "HDFS", "S3", "OSS")) == evictPolicy3.get)
+    assert(Map("MEMORY" -> List("SSD", "HDD", "HDFS", "S3", "OSS", "GCS")) == evictPolicy3.get)
 
     try {
       conf.set("celeborn.worker.storage.storagePolicy.evictPolicy", "ABC")
@@ -481,6 +481,16 @@ class CelebornConfSuite extends CelebornFunSuite {
         assert(e.isInstanceOf[IllegalArgumentException])
         assert(e.getMessage.contains("Resolver class was not found in the classpath."))
     }
+  }
+
+  test("GCS storage config") {
+    val conf = new CelebornConf()
+    conf.set("celeborn.storage.availableTypes", "HDD,GCS")
+    conf.set("celeborn.storage.gcs.dir", "gs://bucket/celeborn")
+    assert(conf.hasGcsStorage)
+    assert(conf.gcsDir == "gs://bucket/celeborn")
+    assert(conf.workerGcsFlusherBufferSize >= 5 * 1024 * 1024)
+    assert(conf.remoteStorageDirs.get.exists(_._1 == StorageInfo.Type.GCS))
   }
 
 }
