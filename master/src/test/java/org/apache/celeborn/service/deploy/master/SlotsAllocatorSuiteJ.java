@@ -259,7 +259,7 @@ public class SlotsAllocatorSuiteJ {
       boolean roundRobin,
       boolean enableS3) {
     checkSlotsOnDFS(
-        workers, partitionIds, shouldReplicate, expectSuccess, roundRobin, enableS3, false);
+        workers, partitionIds, shouldReplicate, expectSuccess, roundRobin, enableS3, false, false);
   }
 
   private void checkSlotsOnDFS(
@@ -270,6 +270,26 @@ public class SlotsAllocatorSuiteJ {
       boolean roundRobin,
       boolean enableS3,
       boolean enableOss) {
+    checkSlotsOnDFS(
+        workers,
+        partitionIds,
+        shouldReplicate,
+        expectSuccess,
+        roundRobin,
+        enableS3,
+        enableOss,
+        false);
+  }
+
+  private void checkSlotsOnDFS(
+      List<WorkerInfo> workers,
+      List<Integer> partitionIds,
+      boolean shouldReplicate,
+      boolean expectSuccess,
+      boolean roundRobin,
+      boolean enableS3,
+      boolean enableOss,
+      boolean enableGcs) {
     CelebornConf conf = new CelebornConf();
     int availableStorageTypes;
     if (enableS3) {
@@ -278,6 +298,9 @@ public class SlotsAllocatorSuiteJ {
     } else if (enableOss) {
       conf.set("celeborn.active.storage.levels", "OSS");
       availableStorageTypes = StorageInfo.OSS_MASK;
+    } else if (enableGcs) {
+      conf.set("celeborn.active.storage.levels", "GCS");
+      availableStorageTypes = StorageInfo.GCS_MASK;
     } else {
       conf.set("celeborn.active.storage.levels", "HDFS");
       availableStorageTypes = StorageInfo.HDFS_MASK;
@@ -479,6 +502,39 @@ public class SlotsAllocatorSuiteJ {
     final boolean shouldReplicate = true;
     checkSlotsOnDFS(workers, partitionIds, shouldReplicate, true, true, false, true);
     checkSlotsOnDFS(workers, partitionIds, shouldReplicate, true, false, false, true);
+  }
+
+  @Test
+  public void testGCSOnly() {
+    final List<WorkerInfo> workers = prepareWorkers(false);
+    final List<Integer> partitionIds = new ArrayList<>();
+    for (int i = 0; i < 3000; i++) {
+      partitionIds.add(i);
+    }
+    final boolean shouldReplicate = true;
+    checkSlotsOnDFS(workers, partitionIds, shouldReplicate, true, true, false, false, true);
+  }
+
+  @Test
+  public void testLocalDisksAndGCS() {
+    final List<WorkerInfo> workers = prepareWorkers(true);
+    DiskInfo gcsDiskInfo1 =
+        new DiskInfo(
+            "GCS", Long.MAX_VALUE, 999999, 999999, Integer.MAX_VALUE, StorageInfo.Type.GCS);
+    DiskInfo gcsDiskInfo2 =
+        new DiskInfo(
+            "GCS", Long.MAX_VALUE, 999999, 999999, Integer.MAX_VALUE, StorageInfo.Type.GCS);
+    gcsDiskInfo1.maxSlots_$eq(Long.MAX_VALUE);
+    gcsDiskInfo2.maxSlots_$eq(Long.MAX_VALUE);
+    workers.get(0).diskInfos().put("GCS", gcsDiskInfo1);
+    workers.get(1).diskInfos().put("GCS", gcsDiskInfo2);
+    final List<Integer> partitionIds = new ArrayList<>();
+    for (int i = 0; i < 3000; i++) {
+      partitionIds.add(i);
+    }
+    final boolean shouldReplicate = true;
+    checkSlotsOnDFS(workers, partitionIds, shouldReplicate, true, true, false, false, true);
+    checkSlotsOnDFS(workers, partitionIds, shouldReplicate, true, false, false, false, true);
   }
 
   @ParameterizedTest

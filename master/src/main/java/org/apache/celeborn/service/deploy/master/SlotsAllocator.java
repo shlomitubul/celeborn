@@ -75,7 +75,8 @@ public class SlotsAllocator {
           if (StorageInfo.localDiskAvailable(availableStorageTypes)
               && diskInfoEntry.getValue().storageType() != StorageInfo.Type.HDFS
               && diskInfoEntry.getValue().storageType() != StorageInfo.Type.S3
-              && diskInfoEntry.getValue().storageType() != StorageInfo.Type.OSS) {
+              && diskInfoEntry.getValue().storageType() != StorageInfo.Type.OSS
+              && diskInfoEntry.getValue().storageType() != StorageInfo.Type.GCS) {
             usableDisks.add(
                 new UsableDiskInfo(
                     diskInfoEntry.getValue(), diskInfoEntry.getValue().getAvailableSlots()));
@@ -94,6 +95,11 @@ public class SlotsAllocator {
             usableDisks.add(
                 new UsableDiskInfo(
                     diskInfoEntry.getValue(), diskInfoEntry.getValue().availableSlots()));
+          } else if (StorageInfo.GCSAvailable(availableStorageTypes)
+              && diskInfoEntry.getValue().storageType() == StorageInfo.Type.GCS) {
+            usableDisks.add(
+                new UsableDiskInfo(
+                    diskInfoEntry.getValue(), diskInfoEntry.getValue().getAvailableSlots()));
           }
         }
       }
@@ -135,7 +141,8 @@ public class SlotsAllocator {
     }
     if (StorageInfo.HDFSOnly(availableStorageTypes)
         || StorageInfo.S3Only(availableStorageTypes)
-        || StorageInfo.OSSOnly(availableStorageTypes)) {
+        || StorageInfo.OSSOnly(availableStorageTypes)
+        || StorageInfo.GCSOnly(availableStorageTypes)) {
       return offerSlotsRoundRobin(
           workers,
           partitionIds,
@@ -159,7 +166,8 @@ public class SlotsAllocator {
                           && diskInfo.status().equals(DiskStatus.HEALTHY)
                           && diskInfo.storageType() != StorageInfo.Type.HDFS
                           && diskInfo.storageType() != StorageInfo.Type.S3
-                          && diskInfo.storageType() != StorageInfo.Type.OSS) {
+                          && diskInfo.storageType() != StorageInfo.Type.OSS
+                          && diskInfo.storageType() != StorageInfo.Type.GCS) {
                         usableDisks.add(diskInfo);
                       }
                     }));
@@ -231,6 +239,8 @@ public class SlotsAllocator {
         storageInfo = new StorageInfo("", StorageInfo.Type.S3, availableStorageTypes);
       } else if (selectedDiskInfo.storageType() == StorageInfo.Type.OSS) {
         storageInfo = new StorageInfo("", StorageInfo.Type.OSS, availableStorageTypes);
+      } else if (selectedDiskInfo.storageType() == StorageInfo.Type.GCS) {
+        storageInfo = new StorageInfo("", StorageInfo.Type.GCS, availableStorageTypes);
       } else {
         storageInfo =
             new StorageInfo(
@@ -246,6 +256,7 @@ public class SlotsAllocator {
                 .filter(p -> p.storageType() != StorageInfo.Type.HDFS)
                 .filter(p -> p.storageType() != StorageInfo.Type.S3)
                 .filter(p -> p.storageType() != StorageInfo.Type.OSS)
+                .filter(p -> p.storageType() != StorageInfo.Type.GCS)
                 .collect(Collectors.toList())
                 .toArray(new DiskInfo[0]);
         int diskIndex =
@@ -260,6 +271,8 @@ public class SlotsAllocator {
         storageInfo = new StorageInfo("", StorageInfo.Type.S3, availableStorageTypes);
       } else if (StorageInfo.OSSAvailable(availableStorageTypes)) {
         storageInfo = new StorageInfo("", StorageInfo.Type.OSS, availableStorageTypes);
+      } else if (StorageInfo.GCSAvailable(availableStorageTypes)) {
+        storageInfo = new StorageInfo("", StorageInfo.Type.GCS, availableStorageTypes);
       } else if (StorageInfo.HDFSAvailable(availableStorageTypes)) {
         storageInfo = new StorageInfo("", StorageInfo.Type.HDFS, availableStorageTypes);
       } else if (StorageInfo.memoryAvailable(availableStorageTypes)) {
