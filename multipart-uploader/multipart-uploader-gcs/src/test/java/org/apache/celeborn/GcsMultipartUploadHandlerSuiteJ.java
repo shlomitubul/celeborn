@@ -1,0 +1,78 @@
+/*
+ * Licensed to the Apache Software Foundation (ASF) under one or more
+ * contributor license agreements.  See the NOTICE file distributed with
+ * this work for additional information regarding copyright ownership.
+ * The ASF licenses this file to You under the Apache License, Version 2.0
+ * (the "License"); you may not use this file except in compliance with
+ * the License.  You may obtain a copy of the License at
+ *
+ *    http://www.apache.org/licenses/LICENSE-2.0
+ *
+ * Unless required by applicable law or agreed to in writing, software
+ * distributed under the License is distributed on an "AS IS" BASIS,
+ * WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
+ * See the License for the specific language governing permissions and
+ * limitations under the License.
+ */
+
+package org.apache.celeborn;
+
+import static org.mockito.Mockito.*;
+
+import java.io.ByteArrayInputStream;
+
+import com.google.cloud.storage.MultipartUploadClient;
+import com.google.cloud.storage.Storage;
+import com.google.cloud.storage.multipartupload.model.UploadPartResponse;
+import org.junit.Test;
+
+public class GcsMultipartUploadHandlerSuiteJ {
+
+  private GcsMultipartUploadHandler.GcsMultipartUploadHandlerSharedState state(
+      MultipartUploadClient mpu) {
+    Storage storage = mock(Storage.class);
+    return new GcsMultipartUploadHandler.GcsMultipartUploadHandlerSharedState(
+        mpu, storage, "bucket");
+  }
+
+  @Test
+  public void putPartAndAbort() throws Exception {
+    MultipartUploadClient client = mock(MultipartUploadClient.class);
+    UploadPartResponse resp = mock(UploadPartResponse.class);
+    when(resp.eTag()).thenReturn("etag-1");
+    when(client.uploadPart(any(), any())).thenReturn(resp);
+    when(client.createMultipartUpload(any()))
+        .thenReturn(
+            mock(
+                com.google.cloud.storage.multipartupload.model.CreateMultipartUploadResponse.class,
+                RETURNS_DEEP_STUBS));
+
+    GcsMultipartUploadHandler handler =
+        new GcsMultipartUploadHandler(state(client), "app/0/file");
+    handler.startUpload();
+    verify(client).createMultipartUpload(any());
+
+    handler.putPart(new ByteArrayInputStream(new byte[6 * 1024 * 1024]), 1, false);
+    verify(client).uploadPart(any(), any()); // two-arg: request + RequestBody
+
+    handler.abort();
+    verify(client).abortMultipartUpload(any());
+  }
+
+  @Test
+  public void zeroBytePartIsSkipped() throws Exception {
+    MultipartUploadClient client = mock(MultipartUploadClient.class, RETURNS_DEEP_STUBS);
+    GcsMultipartUploadHandler handler = new GcsMultipartUploadHandler(state(client), "k");
+    handler.startUpload();
+    handler.putPart(new ByteArrayInputStream(new byte[0]), 1, true);
+    verify(client, never()).uploadPart(any(), any());
+  }
+
+  @Test(expected = java.io.IOException.class)
+  public void nonFinalPartBelow5MiBIsRejected() throws Exception {
+    MultipartUploadClient client = mock(MultipartUploadClient.class, RETURNS_DEEP_STUBS);
+    GcsMultipartUploadHandler handler = new GcsMultipartUploadHandler(state(client), "k");
+    handler.startUpload();
+    handler.putPart(new ByteArrayInputStream(new byte[1024]), 1, false); // < 5 MiB, not final
+  }
+}
