@@ -122,6 +122,8 @@ object PbSerDeUtils {
         storageType = StorageInfo.Type.OSS
       } else if (Utils.isS3Path(pbFileInfo.getFilePath)) {
         storageType = StorageInfo.Type.S3
+      } else if (Utils.isGcsPath(pbFileInfo.getFilePath)) {
+        storageType = StorageInfo.Type.GCS
       }
     } else {
       storageType = StorageInfo.typesMap.get(pbFileInfo.getStorageType)

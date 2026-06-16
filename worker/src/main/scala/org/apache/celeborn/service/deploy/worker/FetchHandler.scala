@@ -303,6 +303,12 @@ class FetchHandler(
               shuffleKey,
               fileName)
             makeStreamHandler(streamId, numChunks = 0)
+          case info: DiskFileInfo if info.isGCS =>
+            chunkStreamManager.registerStream(
+              streamId,
+              shuffleKey,
+              fileName)
+            makeStreamHandler(streamId, numChunks = 0)
           case _ =>
             val managedBuffer = fileInfo match {
               case df: DiskFileInfo =>

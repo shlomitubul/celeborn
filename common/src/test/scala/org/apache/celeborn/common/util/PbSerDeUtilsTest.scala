@@ -55,6 +55,7 @@ class PbSerDeUtilsTest extends CelebornFunSuite {
   val file4 = "oss://xxxx/xx-xx/x-x-x"
   val file5 = "s3a://xxxx/xx-xx/x-x-x"
   val file6 = "s3://xxxx/xx-xx/x-x-x"
+  val file7 = "gs://xxxx/xx-xx/x-x-x"
   val files = List(file1, file2)
 
   val device = new DeviceInfo("device-a")
@@ -116,6 +117,14 @@ class PbSerDeUtilsTest extends CelebornFunSuite {
     new ReduceFileMeta(chunkOffsets3, 123),
     file6,
     StorageInfo.Type.S3,
+    6000L)
+
+  val fileInfo7 = new DiskFileInfo(
+    userIdentifier3,
+    true,
+    new ReduceFileMeta(chunkOffsets3, 123),
+    file7,
+    StorageInfo.Type.GCS,
     6000L)
 
   val mapFileInfo1 = new DiskFileInfo(
@@ -407,6 +416,10 @@ class PbSerDeUtilsTest extends CelebornFunSuite {
     val restoredFileInfo6 = testCreateDiskFileInfoFromPbFileInfo(fileInfo6)
     assert(restoredFileInfo6.getStorageType.equals(fileInfo6.getStorageType))
     assert(restoredFileInfo6.isDFS && restoredFileInfo6.isS3)
+
+    val restoredFileInfo7 = testCreateDiskFileInfoFromPbFileInfo(fileInfo7)
+    assert(restoredFileInfo7.getStorageType.equals(fileInfo7.getStorageType))
+    assert(restoredFileInfo7.isDFS && restoredFileInfo7.isGCS)
   }
 
   test("fromAndToPbUserIdentifier") {

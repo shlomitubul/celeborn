@@ -26,6 +26,7 @@ import java.io.IOException;
 import java.nio.ByteBuffer;
 import java.nio.channels.FileChannel;
 import java.util.ArrayList;
+import java.util.Arrays;
 import java.util.Collections;
 import java.util.HashMap;
 import java.util.Map;
@@ -300,6 +301,60 @@ public class FetchHandlerSuiteJ {
     } finally {
       cleanup(fileInfo);
     }
+  }
+
+  @Test
+  public void testOpenStreamForGCSReturnsZeroChunksLikeS3() throws IOException {
+    // A DFS-backed file (S3/OSS/GCS) is read by the client directly via hadoopFs, so the
+    // worker returns a stream handler with numChunks = 0. GCS must behave exactly like S3.
+    DiskFileInfo s3FileInfo =
+        new DiskFileInfo(
+            userIdentifier,
+            true,
+            new org.apache.celeborn.common.meta.ReduceFileMeta(
+                new ArrayList<>(Arrays.asList(0L)), conf.shuffleChunkSize()),
+            "s3a://bucket/celeborn/app/0/shuffle_0_0_0",
+            org.apache.celeborn.common.protocol.StorageInfo.Type.S3);
+    DiskFileInfo gcsFileInfo =
+        new DiskFileInfo(
+            userIdentifier,
+            true,
+            new org.apache.celeborn.common.meta.ReduceFileMeta(
+                new ArrayList<>(Arrays.asList(0L)), conf.shuffleChunkSize()),
+            "gs://bucket/celeborn/app/0/shuffle_0_0_0",
+            org.apache.celeborn.common.protocol.StorageInfo.Type.GCS);
+
+    int s3NumChunks = openDfsStreamAndGetNumChunks(s3FileInfo);
+    int gcsNumChunks = openDfsStreamAndGetNumChunks(gcsFileInfo);
+
+    assertEquals(0, s3NumChunks);
+    assertEquals("GCS open-stream must yield the same numChunks as S3", s3NumChunks, gcsNumChunks);
+  }
+
+  private int openDfsStreamAndGetNumChunks(DiskFileInfo fileInfo) throws IOException {
+    EmbeddedChannel channel = new EmbeddedChannel();
+    TransportClient client = new TransportClient(channel, mock(TransportResponseHandler.class));
+    FetchHandler fetchHandler = mockFetchHandler(fileInfo);
+    ByteBuffer openStreamByteBuffer =
+        new TransportMessage(
+                MessageType.OPEN_STREAM,
+                PbOpenStream.newBuilder()
+                    .setShuffleKey(shuffleKey)
+                    .setFileName(fileName)
+                    .setStartIndex(0)
+                    .setEndIndex(Integer.MAX_VALUE)
+                    .setReadLocalShuffle(false)
+                    .build()
+                    .toByteArray())
+            .toByteBuffer();
+    fetchHandler.receive(
+        client,
+        new RpcRequest(dummyRequestId, new NioManagedBuffer(openStreamByteBuffer)),
+        createRpcResponseCallback(channel));
+    RpcResponse result = channel.readOutbound();
+    PbStreamHandler streamHandler =
+        TransportMessage.fromByteBuffer(result.body().nioByteBuffer()).getParsedPayload();
+    return streamHandler.getNumChunks();
   }
 
   private FetchHandler mockFetchHandler(FileInfo fileInfo) {
