@@ -838,6 +838,16 @@
         <artifactId>jackson-dataformat-yaml</artifactId>
         <version>${jackson.version}</version>
       </dependency>
+      <!-- Pin jackson-dataformat-xml to ${jackson.version}: google-cloud-storage 2.67.0
+           (GCS XML-API multipart upload) drags in jackson-dataformat-xml 2.18.x, which calls
+           a jackson-core 2.18-only ParserMinimalBase(int, StreamReadConstraints) constructor.
+           With jackson-core pinned to 2.15.3 that throws NoSuchMethodError and kills the worker
+           RPC dispatcher. Forcing the XML format module to the same 2.15.3 keeps jackson coherent. -->
+      <dependency>
+        <groupId>com.fasterxml.jackson.dataformat</groupId>
+        <artifactId>jackson-dataformat-xml</artifactId>
+        <version>${jackson.version}</version>
+      </dependency>
       <dependency>
         <groupId>com.fasterxml.jackson.datatype</groupId>
         <artifactId>jackson-datatype-jsr310</artifactId>

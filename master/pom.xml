@@ -259,5 +259,18 @@
         </dependency>
       </dependencies>
     </profile>
+    <profile>
+      <id>gcp</id>
+      <dependencies>
+        <!-- gcs-connector provides GoogleHadoopFileSystem so the master can read/clean
+             expired GCS app dirs (parity with aws=hadoop-aws, aliyun=hadoop-aliyun).
+             Transitively pulls google-cloud-storage/gax/etc into master-jars. -->
+        <dependency>
+          <groupId>com.google.cloud.bigdataoss</groupId>
+          <artifactId>gcs-connector</artifactId>
+          <version>${gcs-connector.version}</version>
+        </dependency>
+      </dependencies>
+    </profile>
   </profiles>
 </project>

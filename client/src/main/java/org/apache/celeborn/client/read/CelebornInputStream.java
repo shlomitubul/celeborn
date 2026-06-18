@@ -636,6 +636,7 @@ public abstract class CelebornInputStream extends InputStream {
         case S3:
         case OSS:
         case HDFS:
+        case GCS:
           return new DfsPartitionReader(
               conf,
               shuffleKey,
