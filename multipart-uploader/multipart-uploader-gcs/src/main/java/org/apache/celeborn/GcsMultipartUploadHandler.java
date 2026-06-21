@@ -110,18 +110,10 @@ public class GcsMultipartUploadHandler implements MultipartUploadHandler {
     return new GcsMultipartUploadHandlerSharedState(mpu, storage, bucketName);
   }
 
-  // Fail-closed: throw on a zonal/Rapid bucket (XML MPU unsupported there).
-  //
-  // Bucket.getLocationType() is a passthrough of the GCS JSON API "locationType" field; the SDK
-  // defines no enum of values. Standard buckets report "region", "dual-region", or "multi-region"
-  // (documented at cloud.google.com/storage/docs/json_api/v1/buckets). Zonal/Rapid buckets report
-  // "zone" (per the gcloud CLI / Rapid Bucket docs) -- but Google does NOT publish that literal in
-  // the official locationType enum reference, so the exact zonal value remains UNVERIFIED against a
-  // primary API-reference source / a real zonal bucket. We therefore keep a tolerant substring
-  // heuristic: contains("zon") matches "zone" and any future zonal variant, while NOT matching any
-  // of the three documented standard values (none contain "zon"). The fail-closed guard plus the
-  // celeborn.storage.gcs.skipBucketCompatibilityCheck escape hatch are the safety net if the real
-  // value ever differs.
+  // Fail-closed: reject zonal/Rapid buckets, where the XML multipart upload backend is unsupported.
+  // locationType is the GCS JSON API field; standard buckets report region/dual-region/multi-region,
+  // zonal buckets report "zone". The substring match tolerates any zonal variant; the
+  // celeborn.storage.gcs.skipBucketCompatibilityCheck config is the escape hatch if the value differs.
   static void validateStandardBucket(Storage storage, String bucket) {
     Bucket b = storage.get(bucket);
     if (b == null) {
@@ -157,7 +149,7 @@ public class GcsMultipartUploadHandler implements MultipartUploadHandler {
         logger.debug("key {} uploadId {} skip empty part (incoming {})", key, uploadId, partNumber);
         return;
       }
-      buffer.write(bytes); // append to internal accumulation buffer
+      buffer.write(bytes);
 
       if (finalFlush) {
         // Final part has no minimum size. If nothing was ever buffered and no parts uploaded,
@@ -166,9 +158,7 @@ public class GcsMultipartUploadHandler implements MultipartUploadHandler {
           uploadBufferedPart();
         }
       } else {
-        // Non-final flush: only upload once we have crossed the 5 MiB minimum. Upload the entire
-        // current buffer as one part (parts may exceed 5 MiB; max is 5 GiB). Sub-5MiB flushes
-        // simply accumulate until they cross the threshold.
+        // Non-final: upload only after crossing the 5 MiB minimum; otherwise keep accumulating.
         if (buffer.size() >= MIN_PART_SIZE) {
           uploadBufferedPart();
         }
@@ -179,7 +169,6 @@ public class GcsMultipartUploadHandler implements MultipartUploadHandler {
     }
   }
 
-  /** Upload the entire accumulation buffer as one GCS part, then reset the buffer. */
   private void uploadBufferedPart() {
     byte[] partBytes = buffer.toByteArray();
     UploadPartRequest req =

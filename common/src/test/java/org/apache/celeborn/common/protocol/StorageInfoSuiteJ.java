@@ -32,8 +32,7 @@ public class StorageInfoSuiteJ {
     assertEquals(0b100000, StorageInfo.GCS_MASK);
     assertNotEquals(StorageInfo.S3_MASK, StorageInfo.GCS_MASK); // guard: distinct bits
     assertTrue(StorageInfo.GCSAvailable(StorageInfo.GCS_MASK));
-    // ALL_TYPES_AVAILABLE_MASK is the sentinel 0; helpers short-circuit on `== 0`, so this
-    // already returns true with NO change to ALL_TYPES_AVAILABLE_MASK (it is not an OR of masks).
+    // Sentinel 0 short-circuits to true; no GCS_MASK change needed.
     assertTrue(StorageInfo.GCSAvailable(StorageInfo.ALL_TYPES_AVAILABLE_MASK));
     assertTrue(StorageInfo.GCSOnly(StorageInfo.GCS_MASK));
     assertFalse(StorageInfo.GCSOnly(StorageInfo.S3_MASK));
